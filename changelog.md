@@ -4,6 +4,104 @@ Historial de cambios y versiones de la API de BuhoPago.
 
 ---
 
+## Versión 1.2.1 (2026-02-04)
+
+### 🔧 Mejoras Internas
+
+#### Enhanced Transaction Tracking
+Mejoras significativas en el tracking y auditoría de transacciones para mejor trazabilidad de pagos multi-moneda:
+
+**Nuevos campos en PaymentTransaction:**
+- `currency_original` - Moneda original del pago (USD, EUR, VES)
+- `amount_original` - Monto original antes de conversión a VES
+- `exchange_rate` - Tasa de cambio aplicada en el momento del pago
+- `description` - Descripción del pago
+- `reference_id` - ID de referencia externa para integración
+- `metadata` - Metadata adicional en formato JSON
+
+**Impacto:**
+- ✅ Mejor auditoría: Ahora se guarda la moneda y monto original de cada transacción
+- ✅ Trazabilidad completa: Conocer exactamente qué tasa de cambio se usó
+- ✅ Consistencia: Todos los endpoints de guest payments ahora guardan esta información
+- ✅ Sin breaking changes: Los campos son opcionales y compatibles con código existente
+
+**Endpoints Mejorados:**
+- `POST /public-api/direct-payment/generate-otp` - Ahora guarda información completa de moneda
+- `POST /payment-links/{slug}/guest/generate-otp` - Tracking mejorado para pagos guest
+- `POST /guest/generate-otp` - Pagos directos guest con auditoría completa
+
+**Migración Requerida:**
+```bash
+alembic revision --autogenerate -m "Add transaction tracking fields"
+alembic upgrade head
+```
+
+---
+
+## Versión 1.2.0 (2026-02-04)
+
+### ✨ Nuevas Características
+
+#### 💳 Credits API - Créditos Inmediatos (Empresarial)
+Nueva funcionalidad para usuarios empresariales con permisos especiales que permite retirar fondos procesados mediante créditos inmediatos.
+
+**Endpoints:**
+- **POST `/api/v1/credits/execute`** - Ejecutar crédito inmediato a cuenta bancaria
+- **GET `/api/v1/credits/capacity`** - Consultar capacidad de procesamiento disponible
+
+**Sistema de Capacidad de Procesamiento:**
+- Auto-tracking de volumen procesado en transacciones completadas
+- Límite de retiro basado en transacciones recibidas
+- Control por API key con scope `credits:execute`
+
+**Características de Seguridad:**
+- Nuevo scope de permisos: `credits:execute`
+- Validación de capacidad disponible antes de ejecutar
+- Auditoría completa de todas las operaciones
+- Restricción a usuarios con KYC aprobado
+
+**Caso de Uso:**
+Ideal para empresas que:
+- Reciben transacciones de terceros
+- Necesitan convertir fondos a stablecoins
+- Requieren liquidez inmediata basada en volumen procesado
+
+### 🗄️ Base de Datos
+
+#### Nueva Tabla: `api_key_processing_capacity`
+Tracking de volumen procesado y capacidad de retiro por API key:
+- `volume_processed_total` - Total histórico procesado
+- `volume_credited_total` - Total retirado con créditos
+- `volume_available` - Disponible para retirar
+- Índices optimizados para consultas rápidas
+- Relación uno-a-uno con API keys
+
+### 🔧 Mejoras Técnicas
+
+#### Auto-tracking de Volumen
+- Las transacciones completadas automáticamente incrementan la capacidad disponible
+- Actualización en tiempo real del volumen procesado
+- Sistema de manejo de errores robusto (no bloquea transacciones)
+
+#### Servicios
+- Nuevo servicio: `ProcessingCapacityService` para gestión de volumen
+- Integración con `CreditService` existente para ejecución de créditos
+- Polling automático para verificar estado de créditos
+
+### 📚 Documentación
+- Nueva guía completa: [Credits API Documentation](credits-api.md)
+- Ejemplos en Python, JavaScript/Node.js y cURL
+- Diagramas de flujo y mejores prácticas
+- Guía de manejo de errores específicos
+
+### ⚠️ Requisitos para Credits API
+- API key con scope `credits:execute` (solicitar a soporte)
+- KYC aprobado y verificado
+- Al menos una cuenta bancaria registrada
+- Volumen procesado disponible
+
+---
+
 ## Versión 1.1.0 (2026-02-03)
 
 ### ✨ Nuevas Características
@@ -60,12 +158,13 @@ Historial de cambios y versiones de la API de BuhoPago.
 
 ## 🔮 Próximas Versiones
 
-### Planificado para v1.2.0
+### Planificado para v1.3.0
 - Soporte para pagos recurrentes
-- API de transacciones y reportes
-- Webhooks con retry automático
-- Soporte para refunds
+- API de transacciones y reportes avanzados
+- Webhooks con retry automático y firma HMAC
+- Soporte para refunds/devoluciones
 - Dashboard analytics API
+- Endpoints de administración de scopes para API keys
 
 ### En Consideración
 - SDKs oficiales (Python, JavaScript, PHP)

@@ -687,6 +687,39 @@ Content-Type: application/json
 - Guarda el `transaction_id` para el siguiente paso
 - El `amount_bs` es el monto convertido a bolívares que se debitará
 
+#### Ejemplo con VES (Bolívares)
+
+Si prefieres trabajar directamente en VES sin conversión:
+
+```json
+{
+  "amount": 3300.00,
+  "currency": "VES",
+  "description": "Pago de servicio premium",
+  "payer_bank": "0102",
+  "payer_phone": "04241234567",
+  "payer_id_number": "V-12345678",
+  "payer_email": "cliente@example.com"
+}
+```
+
+**Respuesta:**
+```json
+{
+  "message": "OTP enviado exitosamente al teléfono del pagador",
+  "transaction_id": "txn_xyz789ghi012",
+  "amount_original": 3300.00,
+  "currency": "VES",
+  "amount_bs": 3300.00,
+  "exchange_rate": 1.0
+}
+```
+
+✅ **Ventajas de usar VES:**
+- No hay conversión de moneda (más rápido)
+- El monto que indicas es exactamente el que se debita
+- Ideal cuando trabajas directamente en bolívares
+
 ---
 
 ### 8.2. Verificar OTP y Procesar Pago
@@ -1715,9 +1748,72 @@ Si excedes estos límites, recibirás un error `429 Too Many Requests`.
 
 ### Monedas Soportadas
 
-- USD (Dólar estadounidense)
-- EUR (Euro)
-- VES (Bolívar venezolano)
+BuhoPago soporta las siguientes monedas para payment links y pagos directos:
+
+- **USD** (Dólar estadounidense)
+- **EUR** (Euro)
+- **VES** (Bolívar venezolano)
+
+#### Conversión Automática a VES
+
+Todos los pagos se procesan en **Bolívares (VES)**, que es la moneda nacional de Venezuela. Si creas un payment link o pago directo en USD o EUR:
+
+1. **Conversión automática**: El monto se convierte a VES usando la tasa de cambio actual
+2. **Tasa guardada**: La tasa de cambio se guarda en la transacción para auditoría
+3. **Transparencia**: El pagador ve ambos montos (original y en VES)
+
+**Ejemplo de conversión:**
+```json
+// Request: Crear payment link de $50 USD
+{
+  "amount": 50.00,
+  "currency": "USD",
+  "description": "Suscripción mensual"
+}
+
+// Al momento del pago, el sistema:
+// 1. Obtiene tasa actual: 1 USD = 66.00 VES
+// 2. Calcula: 50 * 66.00 = 3,300.00 VES
+// 3. Guarda ambos valores en la transacción
+
+// Transacción guardada:
+{
+  "amount": 3300.00,              // Monto procesado en VES
+  "amount_original": 50.00,       // Monto original
+  "currency_original": "USD",     // Moneda original
+  "exchange_rate": 66.00          // Tasa usada
+}
+```
+
+#### Pagos Directos en VES
+
+Si creas un pago directamente en VES:
+- **No hay conversión**: El monto se procesa tal cual
+- **Tasa de cambio**: Se guarda como 1.0 (sin conversión)
+- **Procesamiento directo**: Más rápido y sin cálculos adicionales
+
+```json
+{
+  "amount": 3300.00,
+  "currency": "VES",
+  "description": "Pago en bolívares"
+}
+// No se aplica conversión, se procesa directamente
+```
+
+#### Tracking de Tasas de Cambio
+
+Todas las transacciones guardan información completa sobre la conversión:
+- Moneda original del pago
+- Monto original antes de conversión
+- Tasa de cambio aplicada
+- Monto final en VES procesado
+
+Esto te permite:
+- ✅ Auditoría completa de tasas aplicadas
+- ✅ Reconciliación de pagos multi-moneda
+- ✅ Reportes detallados por moneda original
+- ✅ Trazabilidad de conversiones históricas
 
 ---
 
