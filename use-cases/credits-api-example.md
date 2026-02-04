@@ -1,344 +1,778 @@
-# Caso de Uso: Exchange Platform con Credits API
+Documentación de Credits API - BúhoPago
+📋 Versión Actualizada (v1.3.0)
+Base URL: https://points0.com/public-api
 
-## Escenario
+🚀 Caso de Uso: Exchange Platform con Credits API
+Características Nuevas (v1.3.0):
+Modo Manual: Envío directo con datos bancarios sin cuenta registrada
 
-Una plataforma de intercambio de criptomonedas necesita:
-1. Recibir pagos en VES de sus clientes
-2. Convertir automáticamente a USDT
-3. Enviar los USDT a las wallets de los clientes
+📋 Endpoints Disponibles
 
-## Arquitectura
+1. Consultar Capacidad de Créditos
+   GET /credits/capacity
 
-```
-┌─────────────┐         ┌──────────────┐         ┌─────────────┐
-│   Cliente   │ pago    │  BuhoPago    │ retiro  │   Exchange  │
-│             ├────────>│              ├────────>│  Platform   │
-│  (Compra)   │  VES    │  (Procesa)   │  VES    │             │
-└─────────────┘         └──────────────┘         └─────────────┘
-                                                         │
-                                                         │ convierte
-                                                         ↓
-                                                   ┌─────────────┐
-                                                   │   Wallet    │
-                                                   │   Cliente   │
-                                                   │   (USDT)    │
-                                                   └─────────────┘
-```
+Consulta el volumen disponible para procesamiento de créditos inmediatos.
 
-## Implementación
+Headers requeridos:
+http
+Authorization: Bearer {api_key}
+Scopes requeridos:
+json
+{
+"required_scope": "credits:execute"
+}
+Respuesta Exitosa (200 OK):
+json
+{
+"success": true,
+"capacity": {
+"volume_processed_total": 15000.00,
+"volume_credited_total": 14500.00,
+"volume_available": 500.00,
+"last_transaction_at": "2024-01-15T10:30:00Z"
+}
+}
+Errores posibles:
+403 Forbidden: API key no tiene el scope credits:execute
 
-### 1. Configuración Inicial
+500 Internal Server Error: Error del servidor
 
-```python
-import requests
-from decimal import Decimal
-import time
-from typing import Dict, Optional
+2. Ejecutar Crédito Inmediato
+   POST /credits/execute
+
+Ejecuta un crédito inmediato a una cuenta bancaria. Soporta dos modos.
+
+Headers requeridos:
+http
+Authorization: Bearer {api_key}
+Content-Type: application/json
+Scopes requeridos:
+json
+{
+"required_scope": "credits:execute"
+}
+2.1 Modo Tradicional (Cuenta Registrada)
+Request Body:
+json
+{
+"bank_account_id": "bank_acc_123456789",
+"amount": 100.00,
+"concept": "Pago por servicios"
+}
+Parámetros:
+Campo Tipo Requerido Descripción
+bank_account_id string ✅ Sí ID de la cuenta bancaria registrada
+amount decimal ✅ Sí Monto a acreditar (mínimo: 1.00)
+concept string ✅ Sí Concepto de la transacción
+2.2 Modo Manual (Datos Directos) - NUEVO en v1.3.0
+Request Body:
+json
+{
+"cedula_manual": "V30552028",
+"account_number_manual": "01050123456789012345",
+"bank_code_manual": "0105",
+"amount": 50.00,
+"concept": "Reembolso manual"
+}
+Parámetros:
+Campo Tipo Requerido Descripción
+cedula_manual string ✅ Sí Cédula/RIF del beneficiario
+account_number_manual string ✅ Sí Número de cuenta bancaria
+bank_code_manual string ✅ Sí Código del banco (ej: 0105)
+amount decimal ✅ Sí Monto a acreditar
+concept string ✅ Sí Concepto de la transacción
+Nota: En modo manual, TODOS los campos \*\_manual son requeridos si no se proporciona bank_account_id.
+
+Respuesta Exitosa (200 OK):
+json
+{
+"success": true,
+"status": "processing",
+"transaction_id": "cred_abc123xyz789",
+"capacity_remaining": 450.00,
+"message": "Crédito en proceso"
+}
+Errores posibles:
+Código Error Descripción
+400 Bad Request Campos inválidos o faltantes
+403 Insufficient Capacity Volumen disponible insuficiente
+403 Scope Required API key sin permisos credits:execute
+404 Bank Account Not Found Cuenta bancaria no existe
+422 Validation Error Datos manuales incompletos
+Ejemplo de Error por Capacidad Insuficiente:
+json
+{
+"detail": {
+"error": "insufficient_capacity",
+"available_capacity": 25.00,
+"required_amount": 100.00,
+"message": "Volumen disponible insuficiente para la transacción"
+}
+}
+💡 Implementación Actualizada
+
+1. Cliente Mejorado (Soporta ambos modos)
+   python
+   import requests
+   from typing import Dict, Optional
 
 class BuhoPagoCreditsClient:
-    def __init__(self, api_key: str, base_url: str = "https://api.buhopago.com"):
-        self.api_key = api_key
-        self.base_url = base_url
-        self.headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
+def **init**(self, api_key: str, base_url: str = "https://points0.com/public-api"):
+self.api_key = api_key
+self.base_url = base_url
+self.headers = {
+"Authorization": f"Bearer {api_key}",
+"Content-Type": "application/json"
+}
 
     def get_capacity(self) -> Dict:
-        """Obtener capacidad disponible"""
+        """Obtener capacidad disponible (REQUIERE scope: credits:execute)"""
         response = requests.get(
-            f"{self.base_url}/api/v1/credits/capacity",
+            f"{self.base_url}/credits/capacity",
             headers=self.headers
         )
-        response.raise_for_status()
-        return response.json()
+
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 403:
+            raise PermissionError("API key no tiene scope 'credits:execute'")
+        else:
+            response.raise_for_status()
 
     def execute_credit(
         self,
-        bank_account_id: str,
-        amount: Decimal,
+        # Parámetros tradicionales
+        bank_account_id: Optional[str] = None,
+        # Parámetros modo manual (NUEVO en v1.3.0)
+        cedula_manual: Optional[str] = None,
+        account_number_manual: Optional[str] = None,
+        bank_code_manual: Optional[str] = None,
+        # Parámetros comunes
+        amount: float,
         concept: str
     ) -> Dict:
-        """Ejecutar crédito inmediato"""
+        """
+        Ejecutar crédito inmediato
+
+        Modos disponibles:
+        1. Tradicional: bank_account_id (cuenta pre-registrada)
+        2. Manual: cedula_manual + account_number_manual + bank_code_manual
+        """
+
+        # Construir payload según modo
+        payload = {"amount": amount, "concept": concept}
+
+        if bank_account_id:
+            # Modo tradicional
+            payload["bank_account_id"] = bank_account_id
+        elif cedula_manual and account_number_manual and bank_code_manual:
+            # Modo manual (NUEVO)
+            payload.update({
+                "cedula_manual": cedula_manual,
+                "account_number_manual": account_number_manual,
+                "bank_code_manual": bank_code_manual
+            })
+        else:
+            raise ValueError(
+                "Debe proporcionar:\n"
+                "1. bank_account_id (modo tradicional) O\n"
+                "2. cedula_manual + account_number_manual + bank_code_manual (modo manual)"
+            )
+
         response = requests.post(
-            f"{self.base_url}/api/v1/credits/execute",
+            f"{self.base_url}/credits/execute",
             headers=self.headers,
-            json={
-                "bank_account_id": bank_account_id,
-                "amount": float(amount),
-                "concept": concept
-            }
+            json=payload
         )
-        response.raise_for_status()
-        return response.json()
-```
 
-### 2. Sistema de Auto-Retiro
+        return self._handle_credit_response(response)
 
-```python
-import asyncio
-from datetime import datetime
+    def _handle_credit_response(self, response) -> Dict:
+        """Manejar respuesta con errores específicos"""
+        if response.status_code == 200:
+            return response.json()
 
-class AutoWithdrawalSystem:
-    def __init__(self, buhopago_client: BuhoPagoCreditsClient):
-        self.client = buhopago_client
-        self.bank_account_id = "your-bank-account-id"
-        self.min_withdrawal = Decimal("100.00")  # Mínimo $100
+        # Errores específicos
+        elif response.status_code == 403:
+            error_data = response.json()
+            detail = error_data.get('detail', {})
 
-    async def check_and_withdraw(self):
-        """Verificar capacidad y retirar si supera el mínimo"""
+            # Capacidad insuficiente
+            if isinstance(detail, dict) and detail.get('error') == 'insufficient_capacity':
+                raise InsufficientCapacityError(
+                    f"Capacidad insuficiente: Disponible ${detail.get('available_capacity')}, "
+                    f"Requiere ${detail.get('required_amount')}"
+                )
+            # Scope faltante
+            elif isinstance(detail, str) and 'no tiene permisos' in detail:
+                raise PermissionError("API key no tiene scope 'credits:execute'")
+            else:
+                response.raise_for_status()
+
+        # Validación de campos
+        elif response.status_code in [400, 422]:
+            error_data = response.json()
+            raise ValidationError(f"Error de validación: {error_data}")
+
+        else:
+            response.raise_for_status()
+
+class InsufficientCapacityError(Exception):
+"""Excepción para capacidad insuficiente"""
+pass
+
+class ValidationError(Exception):
+"""Excepción para errores de validación"""
+pass 2. Sistema de Retiro Inteligente (Con Fallback)
+python
+class IntelligentWithdrawalSystem:
+def **init**(self, buhopago_client: BuhoPagoCreditsClient):
+self.client = buhopago_client
+self.primary_account_id = "your-primary-bank-account-id"
+self.min_withdrawal = 100.00 # Mínimo $100
+
+    def withdraw(self, amount: float, concept: str,
+                 fallback_data: Optional[Dict] = None) -> Dict:
+        """
+        Intenta retiro con fallback automático
+
+        Args:
+            amount: Monto a retirar
+            concept: Concepto de la transacción
+            fallback_data: Datos para modo manual si falla tradicional
+                {
+                    "cedula": "V30552028",
+                    "account_number": "01050123456789012345",
+                    "bank_code": "0105"
+                }
+        """
+
+        # 1. Verificar capacidad
         try:
-            # 1. Consultar capacidad
             capacity = self.client.get_capacity()
-            available = Decimal(str(capacity['capacity']['volume_available']))
+            available = capacity['capacity']['volume_available']
 
-            print(f"💰 Capacidad disponible: ${available}")
-
-            # 2. Verificar si supera el mínimo
-            if available >= self.min_withdrawal:
-                print(f"✅ Ejecutando retiro de ${available}")
-
-                # 3. Ejecutar crédito
-                result = self.client.execute_credit(
-                    bank_account_id=self.bank_account_id,
-                    amount=available,
-                    concept=f"Auto-retiro {datetime.now().strftime('%Y%m%d')}"
+            if available < amount:
+                raise InsufficientCapacityError(
+                    f"Capacidad insuficiente: ${available} disponible, "
+                    f"se requieren ${amount}"
                 )
 
-                # 4. Procesar resultado
-                if result['success'] and result['status'] == 'APROBADA':
-                    print(f"✅ Crédito aprobado: {result['transaction_id']}")
-                    return {
-                        'success': True,
-                        'amount': available,
-                        'transaction_id': result['transaction_id']
-                    }
-                else:
-                    print(f"⏳ Crédito en proceso: {result['status']}")
-                    return {
-                        'success': False,
-                        'status': result['status']
-                    }
-            else:
-                print(f"⏸️ Esperando más volumen (mínimo: ${self.min_withdrawal})")
-                return None
+        except PermissionError:
+            print("⚠️ API key sin scope 'credits:execute'. "
+                  "Solicita el scope a support@buhopago.com")
+            return {"success": False, "error": "scope_required"}
+
+        # 2. Intento primario: Modo tradicional
+        try:
+            print("🔄 Intentando retiro en modo tradicional...")
+            result = self.client.execute_credit(
+                bank_account_id=self.primary_account_id,
+                amount=amount,
+                concept=concept
+            )
+
+            if result.get('success'):
+                print(f"✅ Retiro exitoso: {result.get('transaction_id')}")
+                return {
+                    "success": True,
+                    "mode": "traditional",
+                    "transaction_id": result.get('transaction_id'),
+                    "status": result.get('status')
+                }
 
         except Exception as e:
-            print(f"❌ Error: {e}")
-            return None
+            print(f"⚠️ Modo tradicional falló: {e}")
 
-    async def run_periodic_check(self, interval_minutes: int = 30):
-        """Ejecutar verificación periódica"""
-        while True:
-            print(f"\n🔄 Verificación automática - {datetime.now()}")
-            await self.check_and_withdraw()
+            # 3. Fallback: Modo manual (si hay datos)
+            if fallback_data:
+                try:
+                    print("🔄 Intentando retiro en modo manual...")
+                    result = self.client.execute_credit(
+                        cedula_manual=fallback_data["cedula"],
+                        account_number_manual=fallback_data["account_number"],
+                        bank_code_manual=fallback_data["bank_code"],
+                        amount=amount,
+                        concept=concept
+                    )
 
-            # Esperar intervalo
-            await asyncio.sleep(interval_minutes * 60)
-```
+                    if result.get('success'):
+                        print(f"✅ Retiro manual exitoso: {result.get('transaction_id')}")
+                        return {
+                            "success": True,
+                            "mode": "manual",
+                            "transaction_id": result.get('transaction_id'),
+                            "status": result.get('status')
+                        }
 
-### 3. Integración con Webhook
+                except ValidationError as ve:
+                    print(f"❌ Error validación modo manual: {ve}")
+                    return {"success": False, "error": "validation_failed", "details": str(ve)}
 
-```python
-from flask import Flask, request, jsonify
-import hmac
-import hashlib
+            return {"success": False, "error": "withdrawal_failed", "details": str(e)}
 
-app = Flask(__name__)
+3. Webhook Handler Mejorado
+   python
+   from flask import Flask, request, jsonify
+   import hmac
+   import hashlib
 
-class WebhookHandler:
-    def __init__(self, auto_withdrawal: AutoWithdrawalSystem, webhook_secret: str):
-        self.auto_withdrawal = auto_withdrawal
-        self.webhook_secret = webhook_secret
+app = Flask(**name**)
 
-    def verify_signature(self, payload: str, signature: str) -> bool:
-        """Verificar firma HMAC del webhook"""
-        expected = hmac.new(
-            self.webhook_secret.encode(),
-            payload.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        return hmac.compare_digest(expected, signature)
+class EnhancedWebhookHandler:
+def **init**(self, withdrawal_system: IntelligentWithdrawalSystem):
+self.withdrawal_system = withdrawal_system
 
-    async def handle_transaction_completed(self, transaction_data: Dict):
-        """Manejar transacción completada"""
-        print(f"📥 Nueva transacción: ${transaction_data['amount']}")
+    def handle_payment_completed(self, transaction_data: Dict):
+        """Manejar pago completado y ejecutar retiro automático"""
 
-        # Esperar un momento para que se actualice la capacidad
-        await asyncio.sleep(2)
+        # Extraer datos relevantes
+        amount = transaction_data['amount']
+        customer_data = transaction_data.get('customer', {})
 
-        # Intentar retiro automático
-        result = await self.auto_withdrawal.check_and_withdraw()
+        # Preparar datos para retiro
+        withdrawal_payload = {
+            "amount": amount,
+            "concept": f"Retiro auto - Transacción {transaction_data['id']}",
+            "fallback_data": None
+        }
 
-        if result and result.get('success'):
-            print(f"🚀 Retiro automático exitoso: ${result['amount']}")
+        # Si el cliente proporcionó datos bancarios, usarlos como fallback
+        if customer_data.get('bank_details'):
+            withdrawal_payload["fallback_data"] = {
+                "cedula": customer_data.get('document_id'),
+                "account_number": customer_data['bank_details'].get('account_number'),
+                "bank_code": customer_data['bank_details'].get('bank_code')
+            }
 
-            # Aquí iría la lógica de conversión a USDT
-            await self.convert_to_usdt(result['amount'])
+        # Ejecutar retiro
+        result = self.withdrawal_system.withdraw(**withdrawal_payload)
 
-    async def convert_to_usdt(self, ves_amount: Decimal):
-        """Convertir VES a USDT y enviar a cliente"""
-        # Tu lógica de conversión aquí
-        print(f"💱 Convirtiendo ${ves_amount} VES a USDT...")
-        # exchange_rate = get_ves_usdt_rate()
-        # usdt_amount = ves_amount / exchange_rate
-        # send_to_wallet(usdt_amount)
+        # Registrar resultado
+        self.log_withdrawal_result(transaction_data['id'], result)
 
-# Inicializar
-buhopago = BuhoPagoCreditsClient(api_key="bp_live_xxx")
-auto_withdrawal = AutoWithdrawalSystem(buhopago)
-webhook_handler = WebhookHandler(auto_withdrawal, webhook_secret="your_secret")
+        return result
 
-@app.route('/webhooks/buhopago', methods=['POST'])
-async def handle_webhook():
-    """Endpoint de webhook"""
-    signature = request.headers.get('X-Signature')
-    payload = request.get_data(as_text=True)
+    def log_withdrawal_result(self, transaction_id: str, result: Dict):
+        """Registrar resultado del retiro para auditoría"""
+        log_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "transaction_id": transaction_id,
+            "result": result
+        }
 
-    # Verificar firma
-    if not webhook_handler.verify_signature(payload, signature):
-        return jsonify({'error': 'Invalid signature'}), 401
+        # Guardar en base de datos o archivo
+        print(f"📝 Log retiro: {log_entry}")
+
+@app.route('/webhook/payment-completed', methods=['POST'])
+def handle_webhook():
+"""Endpoint para webhook de pagos completados"""
+
+    # Verificar firma (omitido por brevedad)
+    # ...
 
     data = request.json
 
-    # Procesar según tipo de evento
-    if data['event'] == 'transaction.completed':
-        await webhook_handler.handle_transaction_completed(data['transaction'])
-        return jsonify({'status': 'processed'}), 200
+    if data['event'] == 'payment.completed':
+        handler = EnhancedWebhookHandler(withdrawal_system)
+        result = handler.handle_payment_completed(data['data'])
 
-    return jsonify({'status': 'ignored'}), 200
-```
+        return jsonify({
+            "status": "processed",
+            "withdrawal_result": result
+        }), 200
 
-### 4. Sistema de Monitoreo
+    return jsonify({"status": "ignored"}), 200
 
-```python
-import logging
-from datetime import datetime, timedelta
+4. Ejemplo Completo de Uso
+   python
 
-class CapacityMonitor:
-    def __init__(self, client: BuhoPagoCreditsClient):
-        self.client = client
-        self.logger = logging.getLogger('capacity_monitor')
+# Configuración
 
-    async def monitor_and_alert(self):
-        """Monitorear capacidad y enviar alertas"""
+API_KEY = "bp_live_your_api_key_here"
+BASE_URL = "https://points0.com/public-api"
+
+# Inicializar cliente
+
+client = BuhoPagoCreditsClient(api_key=API_KEY, base_url=BASE_URL)
+withdrawal_system = IntelligentWithdrawalSystem(client)
+
+# Escenario 1: Cliente con cuenta registrada
+
+def scenario_traditional():
+"""Cliente que ya tiene cuenta bancaria registrada"""
+try: # Verificar capacidad
+capacity = client.get_capacity()
+print(f"💰 Capacidad disponible: ${capacity['capacity']['volume_available']}")
+
+        # Ejecutar retiro tradicional
+        result = client.execute_credit(
+            bank_account_id="bank_acc_123456789",
+            amount=500.00,
+            concept="Pago por servicios de intercambio"
+        )
+
+        print(f"✅ Retiro exitoso: {result}")
+
+    except InsufficientCapacityError as e:
+        print(f"❌ {e}")
+    except PermissionError as e:
+        print(f"🔒 {e} - Contacta a support@buhopago.com")
+    except ValidationError as e:
+        print(f"📝 Error de validación: {e}")
+
+# Escenario 2: Cliente nuevo (modo manual)
+
+def scenario_manual():
+"""Cliente que no tiene cuenta registrada"""
+try:
+result = client.execute_credit(
+cedula_manual="V30552028",
+account_number_manual="01050123456789012345",
+bank_code_manual="0105",
+amount=250.00,
+concept="Primer retiro - Datos manuales"
+)
+
+        print(f"✅ Retiro manual exitoso: {result}")
+
+    except ValidationError as e:
+        print(f"❌ Datos inválidos: {e}")
+    except Exception as e:
+        print(f"⚠️ Error: {e}")
+
+# Escenario 3: Sistema automático con fallback
+
+def scenario_automatic_with_fallback():
+"""Sistema que intenta tradicional primero, luego manual"""
+
+    # Datos del cliente
+    customer = {
+        "id": "cust_123",
+        "name": "Juan Pérez",
+        "has_registered_account": False,  # No tiene cuenta registrada
+        "bank_details": {
+            "cedula": "V30552028",
+            "account_number": "01050123456789012345",
+            "bank_code": "0105"
+        }
+    }
+
+    # Intentar retiro
+    withdrawal_payload = {
+        "amount": 300.00,
+        "concept": f"Retiro para {customer['name']}",
+        "fallback_data": customer['bank_details'] if not customer['has_registered_account'] else None
+    }
+
+    result = withdrawal_system.withdraw(**withdrawal_payload)
+
+    if result["success"]:
+        print(f"✅ Retiro {result['mode']} exitoso. ID: {result['transaction_id']}")
+
+        # Proceder con conversión a cripto
+        if result['status'] == 'APROBADA':
+            convert_to_crypto(amount=300.00, customer_id=customer['id'])
+    else:
+        print(f"❌ Falló retiro: {result.get('error')}")
+
+def convert_to_crypto(amount: float, customer_id: str):
+"""Convertir a criptomoneda después de retiro exitoso"""
+print(f"💱 Convirtiendo ${amount} a USDT para cliente {customer_id}") # Tu lógica de conversión aquí # exchange_rate = get_exchange_rate() # usdt_amount = amount / exchange_rate # send_to_wallet(customer_id, usdt_amount) 5. Tests de Validación (Basados en los tests proporcionados)
+python
+class CreditsAPITester:
+def **init**(self, api_key: str, base_url: str = "https://points0.com/public-api"):
+self.api_key = api_key
+self.base_url = base_url
+self.headers = {"Authorization": f"Bearer {api_key}"}
+
+    def test_get_credits_capacity(self):
+        """Test 31: Consultar capacidad de procesamiento disponible"""
         try:
-            capacity = self.client.get_capacity()
-            data = capacity['capacity']
+            response = requests.get(
+                f"{self.base_url}/credits/capacity",
+                headers=self.headers
+            )
 
-            available = Decimal(str(data['volume_available']))
-            processed = Decimal(str(data['volume_processed_total']))
-            credited = Decimal(str(data['volume_credited_total']))
-
-            # Logs
-            self.logger.info(f"📊 Capacidad - Disponible: ${available}, "
-                           f"Procesado: ${processed}, Retirado: ${credited}")
-
-            # Alertas
-            if available >= Decimal("10000"):
-                self.logger.warning(f"⚠️ Alta capacidad disponible: ${available}")
-                # Enviar notificación
-
-            # Estadísticas
-            utilization_rate = (credited / processed * 100) if processed > 0 else 0
-            self.logger.info(f"📈 Tasa de utilización: {utilization_rate:.2f}%")
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('success') and data.get('capacity'):
+                    capacity = data['capacity']
+                    print("✅ Capacidad obtenida exitosamente")
+                    return capacity
+                else:
+                    print("❌ Respuesta sin datos de capacidad")
+                    return None
+            elif response.status_code == 403:
+                print("⚠️ API key sin scope 'credits:execute' (esperado)")
+                return None
+            else:
+                print(f"❌ Status code: {response.status_code}")
+                return None
 
         except Exception as e:
-            self.logger.error(f"❌ Error en monitoreo: {e}")
-```
+            print(f"❌ Exception: {str(e)}")
+            return None
 
-### 5. Script Principal
+    def test_execute_credit_with_manual_data(self):
+        """Test 34: Ejecutar crédito con datos manuales (sin cuenta registrada)"""
+        try:
+            payload = {
+                'cedula_manual': 'V30552028',
+                'account_number_manual': '01050123456789012345',
+                'bank_code_manual': '0105',
+                'amount': 50.00,
+                'concept': 'Test credito manual'
+            }
 
-```python
-import asyncio
+            response = requests.post(
+                f"{self.base_url}/credits/execute",
+                json=payload,
+                headers=self.headers
+            )
 
-async def main():
-    # Configuración
-    API_KEY = "bp_live_xxx"
-    BANK_ACCOUNT_ID = "550e8400-e29b-41d4-a716-446655440000"
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('success'):
+                    print(f"✅ Crédito manual ejecutado - Status: {data.get('status')}")
+                    return data
+                else:
+                    print("❌ Crédito no exitoso")
+                    return None
+            elif response.status_code == 403:
+                error_detail = response.json().get('detail', {})
+                if isinstance(error_detail, dict) and error_detail.get('error') == 'insufficient_capacity':
+                    print("⚠️ Capacidad insuficiente (esperado si no hay volumen)")
+                    return None
+                elif isinstance(error_detail, str) and 'no tiene permisos' in error_detail:
+                    print("⚠️ API key sin scope 'credits:execute'")
+                    return None
+                else:
+                    print(f"❌ Error 403: {error_detail}")
+                    return None
+            elif response.status_code == 400:
+                print("❌ Bad Request")
+                return None
+            else:
+                print(f"❌ Status code: {response.status_code}")
+                return None
 
-    # Inicializar
-    buhopago = BuhoPagoCreditsClient(api_key=API_KEY)
-    auto_withdrawal = AutoWithdrawalSystem(buhopago)
-    monitor = CapacityMonitor(buhopago)
+        except Exception as e:
+            print(f"❌ Exception: {str(e)}")
+            return None
 
-    # Tareas concurrentes
-    await asyncio.gather(
-        # Retiros automáticos cada 30 minutos
-        auto_withdrawal.run_periodic_check(interval_minutes=30),
+    def test_execute_credit_missing_fields(self):
+        """Test 35: Intentar ejecutar crédito sin proporcionar ni bank_account_id ni datos manuales"""
+        try:
+            payload = {
+                'amount': 50.00,
+                'concept': 'Test sin datos'
+            }
 
-        # Monitoreo cada 5 minutos
-        monitor.monitor_and_alert(),
-    )
+            response = requests.post(
+                f"{self.base_url}/credits/execute",
+                json=payload,
+                headers=self.headers
+            )
 
-if __name__ == "__main__":
-    asyncio.run(main())
-```
+            # 400/422 = Validación de campos
+            # 403 = Sin permisos (scope) - La validación de scope ocurre antes
+            if response.status_code in [400, 422]:
+                print("✅ Correctamente rechazado por falta de campos requeridos")
+                return True
+            elif response.status_code == 403:
+                print("✅ API key sin scope 'credits:execute' (no se pudo validar campos)")
+                return True
+            else:
+                print(f"❌ Esperaba 400/422/403, obtuve {response.status_code}")
+                return False
 
-## Flujo Completo
+        except Exception as e:
+            print(f"❌ Exception: {str(e)}")
+            return False
 
-```
-1. Cliente compra USDT por $1,000 VES
-   ↓
-2. Paga vía BuhoPago
-   ↓
-3. Transacción completada
-   ├─> Incrementa volume_available en $1,000
-   └─> Webhook notifica a tu sistema
-   ↓
-4. Tu sistema recibe webhook
-   ├─> Verifica capacidad disponible
-   └─> Ejecuta crédito inmediato por $1,000
-   ↓
-5. Fondos llegan a tu cuenta bancaria
-   ↓
-6. Conviertes $1,000 VES → USDT
-   ↓
-7. Envías USDT a wallet del cliente
-   ↓
-8. Cliente recibe sus USDT ✅
-```
+    def test_execute_credit_partial_manual_data(self):
+        """Test 36: Intentar ejecutar crédito con datos manuales incompletos"""
+        try:
+            # Solo proporcionar cedula_manual y account_number, falta bank_code
+            payload = {
+                'cedula_manual': 'V30552028',
+                'account_number_manual': '01050123456789012345',
+                'amount': 50.00,
+                'concept': 'Test datos incompletos'
+            }
 
-## Mejores Prácticas Implementadas
+            response = requests.post(
+                f"{self.base_url}/credits/execute",
+                json=payload,
+                headers=self.headers
+            )
 
-### ✅ Retiros Automáticos Inteligentes
-- Verifica capacidad antes de ejecutar
-- Espera hasta acumular mínimo ($100)
-- Maneja errores sin bloquear operaciones
+            # 400/422 = Validación de campos
+            # 403 = Sin permisos (scope) - La validación de scope ocurre antes
+            if response.status_code in [400, 422]:
+                print("✅ Correctamente rechazado por datos manuales incompletos")
+                return True
+            elif response.status_code == 403:
+                print("✅ API key sin scope 'credits:execute' (no se pudo validar campos)")
+                return True
+            else:
+                print(f"❌ Esperaba 400/422/403, obtuve {response.status_code}")
+                return False
 
-### ✅ Monitoreo Proactivo
-- Alertas de alta capacidad disponible
-- Logs detallados de todas las operaciones
-- Métricas de tasa de utilización
+        except Exception as e:
+            print(f"❌ Exception: {str(e)}")
+            return False
 
-### ✅ Seguridad
-- Verificación de firma en webhooks
-- API key en variables de entorno
-- Manejo robusto de errores
+📊 Reglas de Validación
+Validaciones Comunes:
+Scope obligatorio: credits:execute requerido para ambos endpoints
 
-### ✅ Escalabilidad
-- Tareas asíncronas concurrentes
-- No bloquea transacciones principales
-- Fácil ajuste de parámetros
+Formato de montos: Decimal positivo con 2 decimales
 
-## Métricas Esperadas
+Concepto: Máximo 255 caracteres
 
-Para una plataforma que procesa **$50,000/día**:
+Validaciones Específicas:
+Para Modo Tradicional:
+bank_account_id debe existir y estar activo
 
-- **Retiros automáticos**: ~48 por día (cada 30 min)
-- **Capacidad promedio**: $1,000 - $2,000
-- **Tiempo de ciclo**: 2-5 minutos (pago → conversión → envío)
-- **Tasa de éxito**: 99%+ con reintentos
+Cuenta bancaria debe pertenecer al usuario autenticado
 
-## Costos Estimados
+Para Modo Manual:
+Grupo completo: Si se proporciona cualquier campo \*\_manual, todos son requeridos
 
-- **Comisión BuhoPago**: 5% + IVA en transacciones recibidas
-- **Créditos inmediatos**: Sin costo adicional
-- **Gas fees (blockchain)**: Variable según red
+Formato cédula: V/E/J + números (ej: V30552028, J-12345678-1)
 
-## Soporte
+Código banco: 4 dígitos numéricos válidos
 
-Para implementar este caso de uso:
-- 📧 Solicita acceso a Credits API: support@buhopago.com
-- 💬 Asistencia técnica: @BuhoPagoSupport
-- 📚 Documentación: [Credits API](../credits-api.md)
+Número cuenta: Entre 15-20 dígitos
+
+🔒 Seguridad y Mejores Prácticas
+Requisitos de Scope:
+python
+
+# La API key DEBE tener el scope:
+
+REQUIRED_SCOPES = ["credits:execute"]
+
+# Verificación en dashboard:
+
+# 1. Ve a https://dashboard.buhopago.com/api-keys
+
+# 2. Edita tu API key
+
+# 3. Marca el scope "credits:execute"
+
+Manejo de Errores Recomendado:
+python
+ERROR_HANDLING = {
+403: {
+"insufficient_capacity": "Esperar o reducir monto",
+"scope_required": "Solicitar scope credits:execute"
+},
+400: "Verificar formato de datos",
+422: "Datos manuales incompletos",
+404: "Cuenta bancaria no encontrada"
+}
+Límites y Validaciones:
+Monto mínimo: $1.00
+
+Datos manuales: Grupo completo requerido (cedula + cuenta + banco)
+
+Formato cédula: V/E/J seguido de números
+
+Formato cuenta: 15-20 dígitos
+
+Código banco: 4 dígitos numéricos
+
+📊 Métricas y Monitoreo
+python
+class CreditsAPIMonitor:
+def **init**(self, client: BuhoPagoCreditsClient):
+self.client = client
+self.metrics = {
+"successful_withdrawals": 0,
+"failed_withdrawals": 0,
+"total_volume": 0.0,
+"mode_usage": {"traditional": 0, "manual": 0}
+}
+
+    def track_withdrawal(self, result: Dict):
+        """Registrar métricas de retiro"""
+        if result.get("success"):
+            self.metrics["successful_withdrawals"] += 1
+            self.metrics["mode_usage"][result.get("mode", "unknown")] += 1
+        else:
+            self.metrics["failed_withdrawals"] += 1
+
+        # Enviar a sistema de monitoreo
+        self.send_to_monitoring_system(self.metrics)
+
+    def print_dashboard(self):
+        """Mostrar dashboard en consola"""
+        total = self.metrics["successful_withdrawals"] + self.metrics["failed_withdrawals"]
+        success_rate = (self.metrics["successful_withdrawals"] / total * 100) if total > 0 else 0
+
+        print("=" * 50)
+        print("📊 DASHBOARD CREDITS API")
+        print("=" * 50)
+        print(f"✅ Retiros exitosos: {self.metrics['successful_withdrawals']}")
+        print(f"❌ Retiros fallidos: {self.metrics['failed_withdrawals']}")
+        print(f"📈 Tasa de éxito: {success_rate:.1f}%")
+        print(f"🏦 Modo tradicional: {self.metrics['mode_usage']['traditional']}")
+        print(f"🆕 Modo manual: {self.metrics['mode_usage']['manual']}")
+        print(f"💰 Volumen total: ${self.metrics['total_volume']:,.2f}")
+        print("=" * 50)
+
+🚨 Solución de Problemas
+Problema Común 1: "API key no tiene permisos"
+python
+
+# Solución:
+
+# 1. Verificar que la API key tenga scope "credits:execute"
+
+# 2. En dashboard: Editar API key → Marcar checkbox
+
+# 3. Si no ves la opción, contacta a support@buhopago.com
+
+Problema Común 2: "Datos manuales incompletos"
+python
+
+# Error: Solo proporcionaste cedula_manual y account_number_manual
+
+# Solución: Proveer TODOS los campos del grupo manual:
+
+correct_payload = {
+"cedula_manual": "V30552028",
+"account_number_manual": "01050123456789012345",
+"bank_code_manual": "0105", # ⬅️ NO OLVIDAR ESTE
+"amount": 100.00,
+"concept": "Test"
+}
+Problema Común 3: "Capacidad insuficiente"
+python
+
+# Soluciones:
+
+# 1. Verificar capacity disponible: GET /credits/capacity
+
+# 2. Reducir monto solicitado
+
+# 3. Esperar a que se procesen más pagos entrantes
+
+# 4. Contactar soporte para aumentar límites
+
+📞 Soporte y Recursos
+Documentación oficial: https://docs.buhopago.com
+
+Soporte técnico: support@buhopago.com
+
+API Status: https://status.buhopago.com
+
+Ejemplos de código: https://github.com/buhopago/examples
+
+Última actualización: Enero 2024
+Versión API: 1.3.0
+Base URL: https://points0.com/public-api
+Estado: Producción ✅
