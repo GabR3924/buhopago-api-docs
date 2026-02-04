@@ -57,7 +57,7 @@ Retira fondos de tu volumen disponible a una cuenta bancaria.
 
 **Endpoint:**
 ```
-POST /api/v1/credits/execute
+POST /public-api/credits/execute
 ```
 
 **Headers:**
@@ -127,7 +127,7 @@ Verifica cuánto volumen tienes disponible para retirar.
 
 **Endpoint:**
 ```
-GET /api/v1/credits/capacity
+GET /public-api/credits/capacity
 ```
 
 **Headers:**

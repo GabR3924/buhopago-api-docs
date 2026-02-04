@@ -643,9 +643,9 @@ Content-Type: application/json
   "currency": "USD",
   "description": "Pago de servicio premium",
 
-  "payer_bank": "0102",
-  "payer_phone": "04241234567",
-  "payer_id_number": "V-12345678",
+  "payer_bank": "0105",
+  "payer_phone": "04120246027",
+  "payer_id_number": "30552028",
   "payer_email": "cliente@example.com",
 
   "reference_id": "ORDER-12345",
@@ -665,7 +665,7 @@ Content-Type: application/json
 | `description` | string | ❌ | Descripción del pago (máx 255 caracteres) |
 | `payer_bank` | string | ✅ | Código del banco (ej: `0102`, `0134`) |
 | `payer_phone` | string | ✅ | Teléfono del pagador (10-15 caracteres) |
-| `payer_id_number` | string | ✅ | Cédula del pagador (ej: `V-12345678`) |
+| `payer_id_number` | string | ✅ | Cédula del pagador (ej: `30552028`, también acepta `V-30552028`) |
 | `payer_email` | string | ❌ | Email del pagador |
 | `reference_id` | string | ❌ | ID de referencia externa |
 | `metadata` | object | ❌ | Datos adicionales personalizados |
@@ -674,7 +674,7 @@ Content-Type: application/json
 ```json
 {
   "message": "OTP enviado exitosamente al teléfono del pagador",
-  "transaction_id": "txn_abc123def456",
+  "transaction_id": 95,
   "amount_original": 50.00,
   "currency": "USD",
   "amount_bs": 1825.50,
@@ -684,8 +684,23 @@ Content-Type: application/json
 
 **⚠️ Importante:**
 - El OTP se envía por SMS al teléfono del pagador
-- Guarda el `transaction_id` para el siguiente paso
+- Guarda el `transaction_id` para el siguiente paso (es un número entero, no string)
 - El `amount_bs` es el monto convertido a bolívares que se debitará
+
+**📋 Formato de Datos:**
+
+| Campo | Formato | Ejemplo Correcto | Ejemplo Incorrecto |
+|-------|---------|------------------|-------------------|
+| `payer_id_number` | Sin prefijo preferido | `"30552028"` ✅ | `"V-30552028"` ⚠️ |
+| `payer_bank` | Código de 4 dígitos | `"0105"` ✅ | `"105"` ❌ |
+| `payer_phone` | Con código de área | `"04120246027"` ✅ | `"4120246027"` ❌ |
+
+**Códigos de Banco Comunes:**
+- `0102` - Banco de Venezuela
+- `0105` - Mercantil
+- `0108` - Banco Provincial (BBVA)
+- `0134` - Banesco
+- `0191` - Banco Nacional de Crédito (BNC)
 
 #### Ejemplo con VES (Bolívares)
 
@@ -696,9 +711,9 @@ Si prefieres trabajar directamente en VES sin conversión:
   "amount": 3300.00,
   "currency": "VES",
   "description": "Pago de servicio premium",
-  "payer_bank": "0102",
-  "payer_phone": "04241234567",
-  "payer_id_number": "V-12345678",
+  "payer_bank": "0105",
+  "payer_phone": "04120246027",
+  "payer_id_number": "30552028",
   "payer_email": "cliente@example.com"
 }
 ```
@@ -707,7 +722,7 @@ Si prefieres trabajar directamente en VES sin conversión:
 ```json
 {
   "message": "OTP enviado exitosamente al teléfono del pagador",
-  "transaction_id": "txn_xyz789ghi012",
+  "transaction_id": 96,
   "amount_original": 3300.00,
   "currency": "VES",
   "amount_bs": 3300.00,
@@ -741,7 +756,7 @@ Content-Type: application/json
 ```json
 {
   "otp_code": "123456",
-  "transaction_id": "txn_abc123def456",
+  "transaction_id": 95,
   "phone": "04241234567",
   "amount": 1825.50
 }
@@ -752,7 +767,7 @@ Content-Type: application/json
 | Campo | Tipo | Requerido | Descripción |
 |-------|------|-----------|-------------|
 | `otp_code` | string | ✅ | Código OTP ingresado por el pagador (4-10 caracteres) |
-| `transaction_id` | string | ✅ | ID de transacción del paso anterior |
+| `transaction_id` | integer | ✅ | ID de transacción del paso anterior |
 | `phone` | string | ✅ | Teléfono del pagador (para validación) |
 | `amount` | float | ✅ | Monto en bolívares a debitar |
 
@@ -808,12 +823,13 @@ Content-Type: application/json
   <label>Banco:</label>
   <select id="bank" required>
     <option value="0102">Banco de Venezuela</option>
+    <option value="0105">Mercantil</option>
     <option value="0134">Banesco</option>
-    <option value="0108">Banco Provincial</option>
+    <option value="0108">Banco Provincial (BBVA)</option>
   </select>
 
   <label>Cédula:</label>
-  <input type="text" id="cedula" placeholder="V-12345678" required>
+  <input type="text" id="cedula" placeholder="30552028" required>
 
   <label>Teléfono:</label>
   <input type="tel" id="phone" placeholder="0424-1234567" required>
@@ -1846,6 +1862,44 @@ Si encuentras un bug o problema:
 ---
 
 ## Changelog
+
+### Versión 1.1.1 (2026-02-04)
+
+- 🔧 **Correcciones Técnicas**:
+  - **BREAKING CHANGE**: `transaction_id` ahora es `integer` en lugar de `string` para Direct Payments
+    - Endpoint afectado: `POST /direct-payment/generate-otp` (respuesta)
+    - Endpoint afectado: `POST /direct-payment/verify-otp` (request)
+    - **Acción requerida**: Actualiza tu código para manejar `transaction_id` como número entero
+  - Corrección en el servicio de OTP para soporte multi-tenant mejorado
+  - Optimización de imports y dependencias internas
+- 📝 **Formato de Cédula**:
+  - Ahora acepta formato sin prefijo (ej: `"30552028"`) además del formato con prefijo (ej: `"V-30552028"`)
+  - Se recomienda enviar la cédula sin prefijo para evitar problemas de formato
+- 🏦 **Códigos de Banco**:
+  - Asegúrate de usar el código correcto de 4 dígitos (ej: `"0105"` para Mercantil, `"0102"` para Banco de Venezuela)
+- ✅ **Estabilidad**:
+  - Mejoras en la confiabilidad del envío de OTP
+  - Mejor manejo de errores y validaciones
+
+**Migración de `transaction_id`:**
+
+```javascript
+// ❌ Antes (v1.1.0)
+const response = await fetch('/api/verificar-otp', {
+  body: JSON.stringify({
+    otp_code: "123456",
+    transaction_id: "95"  // ❌ String
+  })
+});
+
+// ✅ Ahora (v1.1.1)
+const response = await fetch('/api/verificar-otp', {
+  body: JSON.stringify({
+    otp_code: "123456",
+    transaction_id: 95  // ✅ Number
+  })
+});
+```
 
 ### Versión 1.1.0 (2026-02-03)
 

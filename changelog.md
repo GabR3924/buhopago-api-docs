@@ -4,6 +4,70 @@ Historial de cambios y versiones de la API de BuhoPago.
 
 ---
 
+## Versión 1.1.1 (2026-02-04)
+
+### 🔧 Correcciones Técnicas y Mejoras
+
+#### ⚠️ BREAKING CHANGE: Tipo de `transaction_id`
+Cambio en el tipo de dato de `transaction_id` en Direct Payments API para mayor consistencia y eficiencia:
+
+**Endpoints afectados:**
+- `POST /public-api/direct-payment/generate-otp` (response)
+- `POST /public-api/direct-payment/verify-otp` (request)
+
+**Cambio:**
+```javascript
+// ❌ Antes (v1.1.0)
+{
+  "transaction_id": "95"  // String
+}
+
+// ✅ Ahora (v1.1.1)
+{
+  "transaction_id": 95  // Integer
+}
+```
+
+**Acción Requerida:**
+- Actualiza tu código cliente para manejar `transaction_id` como `integer` en lugar de `string`
+- Los parsers JSON deberían manejar esto automáticamente
+- Verifica que no estés forzando conversión a string
+
+#### 📝 Formato de Cédula Mejorado
+- Ahora acepta formato sin prefijo: `"30552028"` (recomendado)
+- También sigue aceptando formato con prefijo: `"V-30552028"`
+- Se recomienda migrar al formato sin prefijo para evitar problemas
+
+#### 🏦 Validación de Códigos de Banco
+- Asegúrate de usar códigos de banco de 4 dígitos:
+  - ✅ `"0105"` (Mercantil)
+  - ✅ `"0102"` (Banco de Venezuela)
+  - ✅ `"0134"` (Banesco)
+  - ❌ `"105"` (Inválido - falta el cero inicial)
+
+#### 🔄 Servicio OTP Multi-Tenant
+- Mejoras internas en el servicio de OTP para mejor soporte multi-tenant
+- Optimización de imports y dependencias
+- Mayor confiabilidad en el envío de códigos OTP
+
+#### ✅ Estabilidad General
+- Corrección de errores internos de validación
+- Mejor manejo de excepciones
+- Logs más descriptivos para debugging
+
+### 📚 Documentación
+- Actualizada documentación con tipos de datos correctos
+- Añadidas tablas de referencia para formatos de datos
+- Ejemplos de código actualizados con mejores prácticas
+- Nueva sección de códigos de banco comunes
+
+### 🐛 Bug Fixes
+- Corregido: Error de validación Pydantic en `DirectPaymentOTPResponse`
+- Corregido: Imports incorrectos del servicio OTP
+- Corregido: Inconsistencia entre tipos de `transaction_id` en diferentes schemas
+
+---
+
 ## Versión 1.2.1 (2026-02-04)
 
 ### 🔧 Mejoras Internas
@@ -177,7 +241,28 @@ Tracking de volumen procesado y capacidad de retiro por API key:
 ## 📢 Cómo Actualizar
 
 ### Breaking Changes
-No hay breaking changes en esta versión. Todos los endpoints existentes permanecen compatibles.
+
+#### v1.1.1 - Tipo de `transaction_id`
+**Impacto:** Bajo - Afecta solo a usuarios de Direct Payments API
+
+Si estás usando los endpoints de Direct Payments, necesitas actualizar tu código para manejar `transaction_id` como `integer`:
+
+```python
+# Python - Antes
+transaction_id = str(response['transaction_id'])  # ❌ Ya no es necesario
+
+# Python - Ahora
+transaction_id = response['transaction_id']  # ✅ Ya es int
+
+# JavaScript - Antes
+const transactionId = response.transaction_id.toString()  # ❌ Ya no es necesario
+
+# JavaScript - Ahora
+const transactionId = response.transaction_id  # ✅ Ya es number
+```
+
+### Versiones Anteriores
+No hay breaking changes en versiones anteriores. Todos los endpoints existentes permanecen compatibles.
 
 ### Nuevas Características
 Los nuevos endpoints están disponibles inmediatamente. Solo necesitas:
